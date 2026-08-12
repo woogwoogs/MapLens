@@ -1,6 +1,6 @@
 # MapLens V5
 
-Simple map-run tracker for ExileAPI.
+Simple map run tracker for ExileAPI.
 
 It tracks information such as kills, map time, DPS, damage, XP, portals,
 deaths, boss status, and gold.
