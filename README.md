@@ -17,13 +17,14 @@ Hideout Summary Only is the default.
 
 After returning from a map, MapLens shows a clean vertical summary on the left.
 
-!\[MapLens hideout summary](Images/hideout-summary.png)
+<img width="1672" height="941" alt="hideout-summary" src="https://github.com/user-attachments/assets/f6e6c0f7-e770-4ca0-99b0-b71de4013574" />
+
 
 ## In-map HUD
 
 The optional compact HUD shows your current run information while mapping.
 
-!\[MapLens compact in-map HUD](Images/in-map-hud.png)
+<img width="1672" height="941" alt="in-map-hud" src="https://github.com/user-attachments/assets/1e57cb60-74da-44f9-bdf3-dfeab048fb8d" />
 
 ## Notes
 
