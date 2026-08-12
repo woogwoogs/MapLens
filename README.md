@@ -1,4 +1,4 @@
-# MapLens V5
+# MapLens
 
 Simple map run tracker for ExileAPI.
 
