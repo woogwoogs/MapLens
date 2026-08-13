@@ -42,6 +42,7 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
     };
 
     private readonly Dictionary<long, long> _monsterLife = new();
+    private readonly HashSet<long> _hostileMonsterIds = new();
     private readonly Queue<DamageSample> _damageWindow = new();
     private readonly HashSet<long> _bossIds = new();
     private readonly HashSet<long> _deadBossIds = new();
@@ -162,6 +163,26 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
             // A removed entity can become unreadable immediately. Normal
             // combat sampling remains the primary boss-death path.
         }
+    }
+
+    public override void EntityAdded(Entity entity)
+    {
+        if (_activeRun == null || !_currentAreaIsActiveMap ||
+            entity == null || entity.Type != EntityType.Monster)
+            return;
+
+        var life = entity.GetComponent<Life>();
+        if (life == null)
+            return;
+
+        // Establish the full-life baseline immediately. This is especially
+        // useful for Legion monsters that are visible before becoming active.
+        _monsterLife[entity.Id] = entity.IsAlive
+            ? Math.Max(0L, (long)life.CurHP + life.CurES)
+            : 0L;
+
+        if (entity.IsHostile || entity.League == LeagueType.Legion)
+            _hostileMonsterIds.Add(entity.Id);
     }
 
     public override Job Tick()
@@ -495,6 +516,7 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
                         break;
                     case "MonsterDroppedItemRarityPct":
                     case "MapItemRarityPct":
+                    case "MapItemDropRarityPct":
                         _activeRun.MapRarity = statValue;
                         readAnyEntry = true;
                         break;
@@ -571,18 +593,32 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
 
         foreach (var entity in GameController.EntityListWrapper.ValidEntitiesByType[EntityType.Monster])
         {
-            if (entity == null || !entity.IsHostile)
+            if (entity == null)
                 continue;
 
             var life = entity.GetComponent<Life>();
             if (life == null)
                 continue;
 
-            var currentLife = Math.Max(0L, (long)life.CurHP + life.CurES);
             var entityId = entity.Id;
+            if (entity.IsHostile || entity.League == LeagueType.Legion)
+                _hostileMonsterIds.Add(entityId);
+
+            // Life components can briefly retain their previous value after a
+            // monster dies. Treat a dead monster as zero life so the killing
+            // portion of an ignite, explosion, cull, or one-shot is not lost.
+            var currentLife = entity.IsAlive
+                ? Math.Max(0L, (long)life.CurHP + life.CurES)
+                : 0L;
+            var hasBaseline = _monsterLife.TryGetValue(entityId, out var previousLife);
+
+            // Cache non-hostile monsters as well. Legion targets can be visible
+            // and damageable before normal hostility flags settle, so known
+            // Legion monsters are eligible from their initial baseline.
+            var shouldMeasureDamage = _hostileMonsterIds.Contains(entityId);
 
             double observedDamage = 0;
-            if (_monsterLife.TryGetValue(entityId, out var previousLife) && currentLife < previousLife)
+            if (hasBaseline && shouldMeasureDamage && currentLife < previousLife)
             {
                 var damage = previousLife - currentLife;
                 var maximumLife = Math.Max(0L, (long)life.MaxHP + life.MaxES);
@@ -602,7 +638,10 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
             }
 
             _monsterLife[entityId] = currentLife;
-            UpdateBossState(entity, observedDamage > 0, currentLife <= 0);
+            if (_bossIds.Contains(entityId) && currentLife <= 0)
+                MarkBossDefeated(entityId);
+            else if (entity.IsHostile)
+                UpdateBossState(entity, observedDamage > 0, currentLife <= 0);
         }
 
         if (sampleDamage > 0)
@@ -744,6 +783,7 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
     private void ClearDamageCache()
     {
         _monsterLife.Clear();
+        _hostileMonsterIds.Clear();
         _damageWindow.Clear();
         _rollingDamage = 0;
         _damageWarmupUntilUtc = DateTime.UtcNow.AddMilliseconds(Settings.CombatWarmupMs.Value);
@@ -768,9 +808,9 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
         var scale = Settings.SummaryUiScale.Value / 100f;
         var panelWidth = Math.Max(300, Settings.SummaryWidth.Value) * scale;
         var padding = 14f * scale;
-        var headerHeight = 88f * scale;
-        var metricHeight = 55f * scale;
-        var footerHeight = 62f * scale;
+        var headerHeight = 78f * scale;
+        var metricHeight = 50f * scale;
+        var footerHeight = 60f * scale;
         var metrics = BuildSummaryMetrics(run);
         var panelHeight = headerHeight + metrics.Count * metricHeight + footerHeight;
         var x = Settings.SummaryX.Value;
@@ -809,7 +849,7 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
             new Vector2(x + panelWidth - padding - timerSize.X, y + 57f * scale), normal);
 
         var statusY = y + 57f * scale;
-        Graphics.DrawText("RETURNED TO HIDEOUT", new Vector2(contentX, statusY), muted);
+        Graphics.DrawText("RETURNED", new Vector2(contentX, statusY), muted);
 
         var metricsTop = y + headerHeight;
         Graphics.DrawBox(new RectangleF(contentX, metricsTop, contentWidth, 1f),
@@ -830,29 +870,26 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
         Graphics.DrawBox(new RectangleF(contentX, footerY, contentWidth, 1f),
             new Color(62, 64, 70, 145));
 
-        var combatUptime = run.ActiveSeconds > 0
-            ? Math.Clamp(run.CombatSeconds * 100d / run.ActiveSeconds, 0d, 100d)
-            : 0;
-        var hasUsefulMapStats = run.HasMapStats &&
-                                (run.MapQuantity != 0 || run.MapRarity != 0 || run.MapPackSize != 0);
-        var contextText = hasUsefulMapStats
-            ? $"QUANTITY {run.MapQuantity}%  ·  RARITY {run.MapRarity}%"
-            : $"COMBAT UPTIME {combatUptime:0}%";
-        Graphics.DrawText(TrimToWidth(contextText, contentWidth),
-            new Vector2(contentX, footerY + 10f * scale), hasUsefulMapStats ? accent : muted);
-
-        var footerSecondLine = hasUsefulMapStats
-            ? $"PACK SIZE {run.MapPackSize}%"
-            : "RUN SUMMARY";
-        Graphics.DrawText(footerSecondLine,
-            new Vector2(contentX, footerY + 33f * scale), muted);
+        if (run.HasMapStats)
+        {
+            var mapStats = $"QUANT {run.MapQuantity}%  ·  RARITY {run.MapRarity}%";
+            Graphics.DrawText(TrimToWidth(mapStats, contentWidth),
+                new Vector2(contentX, footerY + 8f * scale), accent);
+            Graphics.DrawText($"PACK SIZE {run.MapPackSize}%",
+                new Vector2(contentX, footerY + 31f * scale), muted);
+        }
+        else
+        {
+            Graphics.DrawText("GOLD", new Vector2(contentX, footerY + 20f * scale), accent);
+        }
 
         if (Settings.ShowGold.Value)
         {
             var goldText = $"GOLD +{FormatNumber(run.GoldGained)}";
             var goldSize = Graphics.MeasureText(goldText);
             Graphics.DrawText(goldText,
-                new Vector2(x + panelWidth - padding - goldSize.X, footerY + 33f * scale), accent);
+                new Vector2(x + panelWidth - padding - goldSize.X,
+                    footerY + (run.HasMapStats ? 31f : 20f) * scale), accent);
         }
 
         var duration = Math.Max(1, Settings.SummaryDurationSeconds.Value);
@@ -890,44 +927,37 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
         });
         metrics.Add(new HudMetric
         {
-            Label = "XP GAINED",
+            Label = "XP",
             Value = $"+{FormatNumber(run.ExperienceGained)}  ·  +{xpPercent:0.00}%",
             Detail = $"{FormatNumber(xpPerHour)} / HR",
             ValueColor = good
         });
         metrics.Add(new HudMetric
         {
-            Label = "MAP TIME",
+            Label = "TIME",
             Value = FormatDuration(run.ActiveSeconds),
-            Detail = $"COMBAT {FormatDuration(run.CombatSeconds)}  ·  {combatUptime:0}%",
+            Detail = $"FIGHT {FormatDuration(run.CombatSeconds)}  ·  UP {combatUptime:0}%",
             ValueColor = normal
         });
         metrics.Add(new HudMetric
         {
             Label = "PORTALS",
             Value = $"{portalsRemaining} LEFT",
-            Detail = $"{run.Entries} USED  ·  {run.Deaths} DEATHS",
+            Detail = $"USED {run.Entries}  ·  DEATHS {run.Deaths}",
             ValueColor = portalsRemaining <= 1 ? warning : normal
         });
         metrics.Add(new HudMetric
         {
-            Label = "DAMAGE DEALT",
+            Label = "DEALT",
             Value = FormatNumber(run.TotalDamage),
             Detail = $"AVG {FormatNumber(averageDps)}  ·  PEAK {FormatNumber(run.PeakDps)}",
             ValueColor = normal
         });
         metrics.Add(new HudMetric
         {
-            Label = "DAMAGE TAKEN",
+            Label = "TAKEN",
             Value = FormatNumber(run.DamageTaken),
-            Detail = $"MAX HIT {FormatNumber(run.MaxDamageTaken)}",
-            ValueColor = run.LowestLifePercent <= 35 ? warning : normal
-        });
-        metrics.Add(new HudMetric
-        {
-            Label = "LOWEST LIFE",
-            Value = $"{run.LowestLifePercent:0}%",
-            Detail = run.LowestLifePercent <= 35 ? "CLOSE CALL" : "LIFE + ENERGY SHIELD",
+            Detail = $"MAX {FormatNumber(run.MaxDamageTaken)}  ·  LOW {run.LowestLifePercent:0}%",
             ValueColor = run.LowestLifePercent <= 35 ? warning : normal
         });
 
@@ -937,7 +967,7 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
         if (run.BossesSeen == 0)
         {
             bossValue = "NOT SEEN";
-            bossDetail = "MAP BOSS";
+            bossDetail = string.Empty;
             bossColor = warning;
         }
         else if (run.BossesDefeated >= run.BossesSeen)
@@ -945,7 +975,7 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
             bossValue = "DEFEATED";
             bossDetail = run.BossKillSeconds > 0
                 ? $"{FormatDuration(run.BossKillSeconds)} FIGHT"
-                : "MAP BOSS";
+                : string.Empty;
             bossColor = good;
         }
         else
@@ -974,13 +1004,13 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
         var availableWidth = rect.Width - 4f * scale;
 
         Graphics.DrawText(TrimToWidth(metric.Label, availableWidth),
-            new Vector2(textX, rect.Y + 7f * scale), muted);
+            new Vector2(textX, rect.Y + 5f * scale), muted);
         var value = TrimToWidth(metric.Value, availableWidth * 0.68f);
         var valueSize = Graphics.MeasureText(value);
         Graphics.DrawText(value,
-            new Vector2(rightX - valueSize.X, rect.Y + 7f * scale), metric.ValueColor);
+            new Vector2(rightX - valueSize.X, rect.Y + 5f * scale), metric.ValueColor);
         Graphics.DrawText(TrimToWidth(metric.Detail, availableWidth),
-            new Vector2(textX, rect.Y + 31f * scale), muted);
+            new Vector2(textX, rect.Y + 27f * scale), muted);
     }
 
     private static double GetExperienceGainPercent(int level, long experienceGained)
@@ -1090,6 +1120,9 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
         var normal = new Color(239, 241, 246, 255);
         var good = new Color(74, 207, 138, 255);
         var warning = new Color(245, 180, 65, 255);
+        var combatUptime = run.ActiveSeconds > 0
+            ? Math.Clamp(run.CombatSeconds * 100d / run.ActiveSeconds, 0d, 100d)
+            : 0;
 
         if (Settings.ShowKills.Value)
         {
@@ -1122,7 +1155,7 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
             {
                 Label = "DEALT",
                 Value = FormatNumber(run.TotalDamage),
-                Detail = $"BURST {FormatNumber(run.MaxMonsterBurst)}",
+                Detail = $"UP {combatUptime:0}%",
                 ValueColor = normal
             });
         }

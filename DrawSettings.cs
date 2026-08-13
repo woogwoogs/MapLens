@@ -33,8 +33,8 @@ public partial class MapLens
 
         ImGui.Spacing();
         ImGui.Separator();
-        ImGui.TextDisabled("MapLens V5.1 • Session history resets when ExileAPI closes.");
-        ImGui.TextDisabled("MAX BURST is the largest health drop seen on one monster in one update.");
+        ImGui.TextDisabled("MapLens V5.3 • Session history resets when ExileAPI closes.");
+        ImGui.TextDisabled("UP is the percentage of map time spent in active combat.");
         ImGui.Spacing();
         ImGui.TextColored(new Vector4(0.91f, 0.68f, 0.27f, 1f),
             "Made by Woogo. Pls message on Discord for problems or suggestions <3");
@@ -56,7 +56,7 @@ public partial class MapLens
         ImGui.Separator();
         Toggle("Kills and kills per minute", Settings.ShowKills);
         Toggle("Current and peak DPS", Settings.ShowDps);
-        Toggle("Total damage and largest single-monster burst", Settings.ShowTotalDamage);
+        Toggle("Total damage and combat uptime", Settings.ShowTotalDamage);
         Toggle("Damage taken, largest hit, and lowest life", Settings.ShowDamageTaken);
         Toggle("XP gained and XP per hour", Settings.ShowExperience);
         Toggle("Portals remaining and deaths", Settings.ShowPortals);
