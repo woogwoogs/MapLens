@@ -33,7 +33,7 @@ public partial class MapLens
 
         ImGui.Spacing();
         ImGui.Separator();
-        ImGui.TextDisabled("MapLens V5 • Session history resets when ExileAPI closes.");
+        ImGui.TextDisabled("MapLens V5.1 • Session history resets when ExileAPI closes.");
         ImGui.TextDisabled("MAX BURST is the largest health drop seen on one monster in one update.");
         ImGui.Spacing();
         ImGui.TextColored(new Vector4(0.91f, 0.68f, 0.27f, 1f),

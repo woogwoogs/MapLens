@@ -45,6 +45,7 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
     private readonly Queue<DamageSample> _damageWindow = new();
     private readonly HashSet<long> _bossIds = new();
     private readonly HashSet<long> _deadBossIds = new();
+    private readonly HashSet<uint> _activeRunAreaHashes = new();
     private readonly List<RunSnapshot> _history = new();
 
     private RunSnapshot _activeRun;
@@ -182,7 +183,8 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
                     return null;
             }
 
-            if (IsMapArea(area) && (_activeRun == null || _activeRun.AreaHash != area.Hash))
+            if (IsMapArea(area) &&
+                (_activeRun == null || !_activeRunAreaHashes.Contains(area.Hash)))
                 TrySynchronizeArea(area);
 
             var now = DateTime.UtcNow;
@@ -259,8 +261,10 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
         if (area == null)
             return;
 
-        var wasActiveMap = _activeRun != null &&
-                           (_currentAreaIsActiveMap || _lastObservedAreaHash == _activeRun.AreaHash);
+        var cameFromTrackedMap = _activeRun != null &&
+                                 (_currentAreaIsActiveMap ||
+                                  _activeRunAreaHashes.Contains(_lastObservedAreaHash));
+        var wasActiveMap = cameFromTrackedMap;
         if (wasActiveMap && area.IsHideout)
         {
             UpdatePlayerMetrics();
@@ -269,7 +273,8 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
 
         var isMap = IsMapArea(area);
         _lastObservedAreaHash = area.Hash;
-        _currentAreaIsActiveMap = isMap && _activeRun != null && _activeRun.AreaHash == area.Hash;
+        _currentAreaIsActiveMap = isMap && _activeRun != null &&
+                                  _activeRunAreaHashes.Contains(area.Hash);
 
         if (!isMap)
         {
@@ -281,9 +286,24 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
 
         _summaryVisibleUntilUtc = DateTime.MinValue;
 
-        if (_activeRun != null && _activeRun.AreaHash == area.Hash)
+        if (_activeRun != null && _activeRunAreaHashes.Contains(area.Hash))
         {
-            _activeRun.Entries++;
+            // Moving between tracked map rooms is internal travel. Only count
+            // another portal when returning from an outside area such as hideout.
+            if (!cameFromTrackedMap)
+                _activeRun.Entries++;
+
+            _currentAreaIsActiveMap = true;
+            ClearDamageCache();
+            _playerWasAlive = IsPlayerAlive();
+            return;
+        }
+
+        if (_activeRun != null && cameFromTrackedMap)
+        {
+            // Some map-boss arenas use their own area hash. Keep that arena in
+            // the same run rather than archiving the map and starting over.
+            _activeRunAreaHashes.Add(area.Hash);
             _currentAreaIsActiveMap = true;
             ClearDamageCache();
             _playerWasAlive = IsPlayerAlive();
@@ -310,6 +330,8 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
             Entries = 1
         };
 
+        _activeRunAreaHashes.Clear();
+        _activeRunAreaHashes.Add(area.Hash);
         _currentAreaIsActiveMap = true;
         _playerWasAlive = IsPlayerAlive();
         ClearRunCombatCache();
@@ -326,7 +348,8 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
 
     private bool IsCurrentActiveMap(AreaInstance area)
     {
-        return _activeRun != null && IsMapArea(area) && area.Hash == _activeRun.AreaHash;
+        return _activeRun != null && IsMapArea(area) &&
+               _activeRunAreaHashes.Contains(area.Hash);
     }
 
     private void ShowHideoutSummary()
@@ -380,6 +403,8 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
             Entries = 1
         };
 
+        _activeRunAreaHashes.Clear();
+        _activeRunAreaHashes.Add(area.Hash);
         _currentAreaIsActiveMap = true;
         _lastTickUtc = DateTime.UtcNow;
         _playerWasAlive = IsPlayerAlive();
@@ -683,6 +708,18 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
                 stats.ContainsKey(GameStat.MapBossDamagePct) ||
                 stats.ContainsKey(GameStat.MapBossAttackAndCastSpeedPct))
                 return true;
+        }
+
+        var modifiers = entity.GetComponent<ObjectMagicProperties>()?.Mods;
+        if (modifiers != null)
+        {
+            foreach (var modifier in modifiers)
+            {
+                if (!string.IsNullOrEmpty(modifier) &&
+                    modifier.IndexOf("MapBoss", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    modifier.IndexOf("Underling", StringComparison.OrdinalIgnoreCase) < 0)
+                    return true;
+            }
         }
 
         var path = entity.Path ?? entity.Metadata ?? string.Empty;
