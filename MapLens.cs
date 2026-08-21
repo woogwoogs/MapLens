@@ -8,6 +8,7 @@ using ExileCore.PoEMemory.Components;
 using ExileCore.PoEMemory.MemoryObjects;
 using ExileCore.Shared;
 using ExileCore.Shared.Enums;
+using ImGuiNET;
 using Color = SharpDX.Color;
 using RectangleF = SharpDX.RectangleF;
 using Vector2 = System.Numerics.Vector2;
@@ -770,11 +771,20 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
         if (_activeRun == null)
             return;
 
-        _deadBossIds.Add(entityId);
+        // A dead boss may remain in the entity list for several updates. Only
+        // the first confirmed death may set the fight duration; otherwise the
+        // displayed timer keeps growing while the dead entity is still read.
+        if (!_deadBossIds.Add(entityId))
+        {
+            _activeRun.BossesSeen = Math.Max(_activeRun.BossesSeen, _bossIds.Count);
+            _activeRun.BossesDefeated = Math.Max(_activeRun.BossesDefeated, _deadBossIds.Count);
+            return;
+        }
+
         if (_activeRun.BossEncounterStartedAt < 0)
             _activeRun.BossEncounterStartedAt = _activeRun.ActiveSeconds;
 
-        _activeRun.BossKillSeconds = Math.Max(_activeRun.BossKillSeconds,
+        _activeRun.BossKillSeconds = Math.Max(0,
             _activeRun.ActiveSeconds - _activeRun.BossEncounterStartedAt);
         _activeRun.BossesSeen = Math.Max(_activeRun.BossesSeen, _bossIds.Count);
         _activeRun.BossesDefeated = Math.Max(_activeRun.BossesDefeated, _deadBossIds.Count);
@@ -815,13 +825,14 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
         var panelHeight = headerHeight + metrics.Count * metricHeight + footerHeight;
         var x = Settings.SummaryX.Value;
         var y = Settings.SummaryY.Value;
+        var bounds = new RectangleF(x, y, panelWidth, panelHeight);
         var accent = Settings.AccentColor.Value;
         var background = Settings.BackgroundColor.Value;
         var border = Settings.BorderColor.Value;
         var normal = new Color(239, 241, 246, 255);
         var muted = new Color(145, 151, 164, 255);
 
-        Graphics.DrawBox(new RectangleF(x, y, panelWidth, panelHeight), border, 8f * scale);
+        Graphics.DrawBox(bounds, border, 8f * scale);
         Graphics.DrawBox(new RectangleF(x + 1f, y + 1f, panelWidth - 2f, panelHeight - 2f),
             background, 7f * scale);
         Graphics.DrawBox(new RectangleF(x + 1f, y + 1f, 4f * scale, panelHeight - 2f),
@@ -896,6 +907,13 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
         var progress = Math.Clamp((_summaryVisibleUntilUtc - now).TotalSeconds / duration, 0d, 1d);
         Graphics.DrawBox(new RectangleF(x + 2f, y + panelHeight - 3f * scale,
             (panelWidth - 4f) * (float)progress, 2f * scale), accent);
+
+        DrawPanelMoveHandle("Summary", bounds, scale, true);
+        if (DrawSummaryCloseButton(bounds, scale))
+        {
+            _summaryVisibleUntilUtc = DateTime.MinValue;
+            _summaryRun = null;
+        }
     }
 
     private List<HudMetric> BuildSummaryMetrics(RunSnapshot run)
@@ -1111,6 +1129,8 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
                     new RectangleF(metricX, metricY, metricWidth, metricHeight), scale);
             }
         }
+
+        DrawPanelMoveHandle("Compact", bounds, scale, false);
     }
 
     private List<HudMetric> BuildMetrics(RunSnapshot run)
@@ -1265,6 +1285,87 @@ public partial class MapLens : BaseSettingsPlugin<Settings>
             new Vector2(textX, rect.Y + 17f * scale), metric.ValueColor);
         Graphics.DrawText(detail,
             new Vector2(textX, rect.Y + 33f * scale), muted);
+    }
+
+    private void DrawPanelMoveHandle(string panelId, RectangleF bounds, float scale, bool isSummary)
+    {
+        if (!Settings.EditPanelPositions.Value)
+            return;
+
+        var handleHeight = Math.Min(22f * scale, bounds.Height);
+        var hint = "DRAG";
+        var hintSize = Graphics.MeasureText(hint);
+        var hintX = bounds.X + (bounds.Width - hintSize.X) / 2f;
+        Graphics.DrawText(hint, new Vector2(hintX, bounds.Y + 3f * scale),
+            new Color(232, 174, 69, 210));
+        Graphics.DrawBox(new RectangleF(bounds.X + 7f * scale,
+                bounds.Y + handleHeight - 2f * scale,
+                Math.Max(0f, bounds.Width - 14f * scale), 1f * scale),
+            new Color(232, 174, 69, 130));
+
+        ImGui.SetNextWindowPos(new Vector2(bounds.X, bounds.Y), ImGuiCond.Always);
+        ImGui.SetNextWindowSize(new Vector2(bounds.Width, handleHeight), ImGuiCond.Always);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.Begin($"##MapLensMove{panelId}", ImGuiWindowFlags.NoDecoration |
+            ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoSavedSettings |
+            ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoBringToFrontOnFocus |
+            ImGuiWindowFlags.NoFocusOnAppearing);
+        ImGui.InvisibleButton("##drag", new Vector2(bounds.Width, handleHeight));
+
+        if (ImGui.IsItemActive() && ImGui.IsMouseDown(ImGuiMouseButton.Left))
+            MovePanel(isSummary, ImGui.GetIO().MouseDelta);
+
+        ImGui.End();
+        ImGui.PopStyleVar();
+    }
+
+    private bool DrawSummaryCloseButton(RectangleF bounds, float scale)
+    {
+        var size = 20f * scale;
+        var x = bounds.X + bounds.Width - size - 6f * scale;
+        var y = bounds.Y + 5f * scale;
+        var text = "X";
+        var textSize = Graphics.MeasureText(text);
+
+        Graphics.DrawBox(new RectangleF(x, y, size, size), new Color(55, 44, 32, 245),
+            3f * scale);
+        Graphics.DrawText(text, new Vector2(x + (size - textSize.X) / 2f,
+            y + (size - textSize.Y) / 2f), new Color(232, 174, 69, 255));
+
+        ImGui.SetNextWindowPos(new Vector2(x, y), ImGuiCond.Always);
+        ImGui.SetNextWindowSize(new Vector2(size, size), ImGuiCond.Always);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.Begin("##MapLensSummaryClose", ImGuiWindowFlags.NoDecoration |
+            ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoSavedSettings |
+            ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoBringToFrontOnFocus |
+            ImGuiWindowFlags.NoFocusOnAppearing);
+        var clicked = ImGui.InvisibleButton("##close", new Vector2(size, size));
+        ImGui.End();
+        ImGui.PopStyleVar();
+
+        return clicked;
+    }
+
+    private void MovePanel(bool isSummary, Vector2 mouseDelta)
+    {
+        var deltaX = (int)Math.Round(mouseDelta.X);
+        var deltaY = (int)Math.Round(mouseDelta.Y);
+        if (deltaX == 0 && deltaY == 0)
+            return;
+
+        if (isSummary)
+        {
+            Settings.SummaryX.Value = Math.Clamp(Settings.SummaryX.Value + deltaX,
+                Settings.SummaryX.Min, Settings.SummaryX.Max);
+            Settings.SummaryY.Value = Math.Clamp(Settings.SummaryY.Value + deltaY,
+                Settings.SummaryY.Min, Settings.SummaryY.Max);
+            return;
+        }
+
+        Settings.PanelX.Value = Math.Clamp(Settings.PanelX.Value + deltaX,
+            Settings.PanelX.Min, Settings.PanelX.Max);
+        Settings.PanelY.Value = Math.Clamp(Settings.PanelY.Value + deltaY,
+            Settings.PanelY.Min, Settings.PanelY.Max);
     }
 
     private string TrimToWidth(string value, float maxWidth)

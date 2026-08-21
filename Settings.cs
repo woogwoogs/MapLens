@@ -30,6 +30,7 @@ public class Settings : ISettings
     public ToggleNode ShowPortals { get; set; } = new(true);
     public ToggleNode ShowBoss { get; set; } = new(true);
     public ToggleNode ShowGold { get; set; } = new(true);
+    public ToggleNode EditPanelPositions { get; set; } = new(false);
 
     public RangeNode<int> PanelX { get; set; } = new(28, 0, 4000);
     public RangeNode<int> PanelY { get; set; } = new(190, 0, 2200);

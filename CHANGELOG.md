@@ -1,5 +1,13 @@
 # Changelog
 
+## V5.4
+
+- Added **Edit panel positions with the mouse**. Enable it in settings and
+  drag the top strip of either panel to reposition it.
+- Added an **X** to dismiss the hideout summary before its auto-close timer.
+- Fixed boss fight time continuing to count after the boss dies. It is now
+  frozen on the first confirmed boss death.
+
 ## V5.3
 
 - Shorter, cleaner hideout summary with compact labels and fewer repeated lines.

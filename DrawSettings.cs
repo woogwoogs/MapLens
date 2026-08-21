@@ -33,8 +33,9 @@ public partial class MapLens
 
         ImGui.Spacing();
         ImGui.Separator();
-        ImGui.TextDisabled("MapLens V5.3 • Session history resets when ExileAPI closes.");
+        ImGui.TextDisabled("MapLens V5.4 • Session history resets when ExileAPI closes.");
         ImGui.TextDisabled("UP is the percentage of map time spent in active combat.");
+        ImGui.TextDisabled("Boss fight time freezes on the first confirmed boss death.");
         ImGui.Spacing();
         ImGui.TextColored(new Vector4(0.91f, 0.68f, 0.27f, 1f),
             "Made by Woogo. Pls message on Discord for problems or suggestions <3");
@@ -66,6 +67,8 @@ public partial class MapLens
         ImGui.Spacing();
         ImGui.TextDisabled("COMPACT HUD POSITION & SIZE");
         ImGui.Separator();
+        Toggle("Edit panel positions with the mouse", Settings.EditPanelPositions);
+        ImGui.TextDisabled("Enable this, then drag a panel's top strip. Disable it when finished.");
         Slider("Horizontal position", Settings.PanelX);
         Slider("Vertical position", Settings.PanelY);
         Slider("Panel width", Settings.PanelWidth);
