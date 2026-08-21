@@ -1,19 +1,9 @@
 # MapLens V5.4
 
-MapLens is a simple map-run tracker for ExileAPI.
+Map run tracker
 
-It tracks useful information such as kills, map time, DPS, damage, XP, portals,
+tracks useful information such as kills, map time, DPS, damage, XP, portals,
 deaths, boss status, and gold.
-
-V5.4 adds easy mouse positioning for both panels, a close button on the
-hideout summary, and freezes the boss fight timer as soon as the boss is
-confirmed dead.
-
-## Installation
-
-1. Download and extract `MapLens_V5.4_Release.zip`.
-2. Place the `MapLens` folder inside ExileAPI's `Plugins\Source` folder.
-3. Start ExileAPI and enable **MapLens** in the F12 menu.
 
 ## Display modes
 
@@ -34,13 +24,15 @@ Hideout Summary Only is the default.
 
 After returning from a map, MapLens shows a clean vertical summary on the left.
 
-![MapLens hideout summary](Images/hideout-summary.png)
+<img width="1038" height="1086" alt="hideout-summary" src="https://github.com/user-attachments/assets/e2552613-8d90-4770-a338-86fe1fa5368a" />
+
 
 ## In-map HUD
 
 The optional compact HUD shows your current run information while mapping.
 
-![MapLens compact in-map HUD](Images/in-map-hud.png)
+<img width="1493" height="1038" alt="in-map-hud" src="https://github.com/user-attachments/assets/6e733999-c01e-4628-b4e8-ac7e85a33d80" />
+
 
 ## Notes
 
@@ -51,4 +43,4 @@ The optional compact HUD shows your current run information while mapping.
 - Position, size, colors, displayed stats, and summary duration can be changed
   in the settings.
 
-Made by Woogo. Pls message on Discord for problems or suggestions <3
+Made by Woogo and chatgpt. Pls message on Discord for problems or suggestions <3
